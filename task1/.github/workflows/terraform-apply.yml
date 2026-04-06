@@ -1,0 +1,64 @@
+name: "Task 1 — Terraform Apply"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "task1/terraform/**"
+  workflow_dispatch: # ручний запуск
+
+jobs:
+  terraform:
+    name: "Terraform Plan & Apply"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: task1/terraform
+
+    env:
+      # Секрети передаються через GitHub Secrets — у коді не зберігаються
+      TF_VAR_do_token:          ${{ secrets.DO_TOKEN }}
+      TF_VAR_spaces_access_key: ${{ secrets.SPACES_ACCESS_KEY }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_ssh_public_key:    ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # Backend credentials для S3 (DigitalOcean Spaces)
+      AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+
+    steps:
+      - name: Checkout коду
+        uses: actions/checkout@v4
+
+      - name: Встановлення Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      # ── Крок 1: terraform init ──────────────────────────────────────
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="access_key=${{ secrets.SPACES_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.SPACES_SECRET_KEY }}"
+
+      # ── Крок 2: terraform validate (перевірка синтаксису) ───────────
+      - name: Terraform Validate
+        run: terraform validate
+
+      # ── Крок 3: terraform plan (перевірка без розгортання) ──────────
+      # Якщо plan завершується з помилкою — pipeline зупиняється
+      - name: Terraform Plan
+        run: terraform plan -detailed-exitcode -out=tfplan
+        # -detailed-exitcode: код 0=без змін, 1=помилка, 2=є зміни
+        # При коді 1 (помилка) — job автоматично зупиняється
+
+      # ── Крок 4: terraform apply (реальне розгортання) ───────────────
+      # Виконується лише якщо plan пройшов успішно
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      # ── Крок 5: показати outputs ────────────────────────────────────
+      - name: Показати створені ресурси
+        run: terraform output
